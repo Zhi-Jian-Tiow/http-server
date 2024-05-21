@@ -17,5 +17,5 @@ var request = Encoding.UTF8.GetString(requestBuffer);
 var httpRequestLine = request.Split("\r\n")[0];
 var (httpMethod, targetUrl, httpVersion) = (httpRequestLine.Split(" ")[0], httpRequestLine.Split(" ")[1], httpRequestLine.Split(" ")[2]);
 
-var response = targetUrl == "/" ? $"{httpVersion} 200 OK\r\n\r\n" : $"{httpVersion} 404 NOT FOUND\r\n\r\n";
+var response = targetUrl == "/" ? $"{httpVersion} 200 OK\r\n\r\n" : $"{httpVersion} 404 Not Found\r\n\r\n";
 socket.Send(Encoding.UTF8.GetBytes(response));
