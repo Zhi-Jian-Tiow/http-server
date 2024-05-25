@@ -17,30 +17,25 @@ var receivedBytes = socket.Receive(requestBuffer);
 var request = Encoding.UTF8.GetString(requestBuffer);
 var httpRequestLine = request.Split("\r\n")[0];
 var (httpMethod, targetUrl, httpVersion) = (httpRequestLine.Split(" ")[0], httpRequestLine.Split(" ")[1], httpRequestLine.Split(" ")[2]);
-// Console.WriteLine(httpMethod);
-// Console.WriteLine(targetUrl);
-// Console.WriteLine(httpVersion);
 
-var responseStatus = "";
-var responseBody = "";
+byte[] responseBuffer;
+string response = "";
 
-if (targetUrl.Length > 1)
+if (targetUrl == "/")
 {
-    var paths = targetUrl.Split("/");
-    if (paths.Length == 3 & paths[1] == "echo")
-    {
-        responseBody += $"\r\nContent-Type: text/plain\r\nContent-Length: 3\r\n\r\n{paths[2]}";
-    }
-}
-
-if (responseBody != "" | targetUrl == "/")
-{
-    responseStatus = $"{httpVersion} 200 OK\r\n\r\n";
+    response = $"{httpVersion} 200 OK\r\n\r\n";
 }
 else
 {
-    responseStatus = $"{httpVersion} 404 Not Found\r\n\r\n";
+    response = $"{httpVersion} 404 Not Found\r\n\r\n";
 }
 
-// Console.WriteLine(responseStatus + responseBody);
-socket.Send(Encoding.UTF8.GetBytes(responseStatus + responseBody));
+
+if (targetUrl.StartsWith("/echo/"))
+{
+    string path = targetUrl.Substring(6);
+    response = $"{httpVersion} 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {path.Length}\r\n\r\n{path}";
+}
+
+responseBuffer = Encoding.UTF8.GetBytes(response);
+socket.Send(responseBuffer);
