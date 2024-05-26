@@ -40,7 +40,7 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
     {
         string target = "/echo/";
         var responseBodyContent = clientRequest.RequestUrl.Substring(target.Length);
-        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent);
+        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain");
     }
     else if (requestUrl == "/user-agent")
     {
@@ -54,7 +54,28 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
                 break;
             }
         }
-        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent);
+        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain");
+    }
+    else if (requestUrl.StartsWith("/files/"))
+    {
+        var target = "/files/";
+        string fileName = requestUrl.Substring(target.Length);
+        var cmdArgs = Environment.GetCommandLineArgs();
+        string directory = cmdArgs[2];
+        Console.WriteLine(directory);
+        var targetFilePath = Path.Join(directory, fileName);
+        Console.WriteLine("Finding requested file: " + targetFilePath);
+        if (File.Exists(targetFilePath))
+        {
+            Console.WriteLine("Reading requested file content");
+            var fileContent = File.ReadAllText(targetFilePath);
+            response = serverResponse.GenerateSuccessResponseWithBody(fileContent, "application/octet-stream");
+        }
+        else
+        {
+            Console.WriteLine("File Not Found");
+            response = serverResponse.Generate404Response();
+        }
     }
     else
     {
@@ -82,9 +103,9 @@ public class Response
     {
         return $"{_request.ProtocolVersion} 404 Not Found\r\n\r\n";
     }
-    public string GenerateSuccessResponseWithBody(string responseBodyContent)
+    public string GenerateSuccessResponseWithBody(string responseBodyContent, string contentType)
     {
-        return $"{_request.ProtocolVersion} 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {responseBodyContent.Length}\r\n\r\n{responseBodyContent}";
+        return $"{_request.ProtocolVersion} 200 OK\r\nContent-Type: ${contentType}\r\nContent-Length: {responseBodyContent.Length}\r\n\r\n{responseBodyContent}";
     }
 }
 
