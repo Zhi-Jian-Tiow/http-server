@@ -15,7 +15,8 @@ var requestBuffer = new byte[1024];
 var receivedBytes = socket.Receive(requestBuffer);
 
 var request = Encoding.UTF8.GetString(requestBuffer);
-var httpRequestLine = request.Split("\r\n")[0];
+var requestDetails = request.Split("\r\n");
+var httpRequestLine = requestDetails[0];
 var (httpMethod, targetUrl, httpVersion) = (httpRequestLine.Split(" ")[0], httpRequestLine.Split(" ")[1], httpRequestLine.Split(" ")[2]);
 
 byte[] responseBuffer;
@@ -35,6 +36,19 @@ if (targetUrl.StartsWith("/echo/"))
 {
     string path = targetUrl.Substring(6);
     response = $"{httpVersion} 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {path.Length}\r\n\r\n{path}";
+}
+
+if (targetUrl == "/user-agent")
+{
+    string userAgentContent = "";
+    for (int i = 0; i < requestDetails.Length; i++)
+    {
+        if (requestDetails[i].StartsWith("User-Agent"))
+        {
+            userAgentContent = requestDetails[i].Substring(12);
+        }
+    }
+    response = $"{httpVersion} 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {userAgentContent.Length}\r\n\r\n{userAgentContent}";
 }
 
 responseBuffer = Encoding.UTF8.GetBytes(response);
