@@ -105,7 +105,7 @@ public class Response
     }
     public string GenerateSuccessResponseWithBody(string responseBodyContent, string contentType)
     {
-        return $"{_request.ProtocolVersion} 200 OK\r\nContent-Type: ${contentType}\r\nContent-Length: {responseBodyContent.Length}\r\n\r\n{responseBodyContent}";
+        return $"{_request.ProtocolVersion} 200 OK\r\nContent-Type: {contentType}\r\nContent-Length: {responseBodyContent.Length}\r\n\r\n{responseBodyContent}";
     }
 }
 
