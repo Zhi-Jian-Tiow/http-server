@@ -69,7 +69,7 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
         {
             var fileContent = clientRequest.Body;
             File.WriteAllText(targetFilePath, fileContent);
-            response = serverResponse.GenerateSuccessResponse("201", "CREATED");
+            response = serverResponse.GenerateSuccessResponse("201", "Created");
         }
         else
         {
