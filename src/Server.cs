@@ -9,47 +9,107 @@ Console.WriteLine("Logs from your program will appear here!");
 TcpListener server = new TcpListener(IPAddress.Any, 4221);
 server.Start();
 Console.WriteLine("Accepting client connections");
-var socket = server.AcceptSocket(); // wait for client
-
-var requestBuffer = new byte[1024];
-var receivedBytes = socket.Receive(requestBuffer);
-
-var request = Encoding.UTF8.GetString(requestBuffer);
-var requestDetails = request.Split("\r\n");
-var httpRequestLine = requestDetails[0];
-var (httpMethod, targetUrl, httpVersion) = (httpRequestLine.Split(" ")[0], httpRequestLine.Split(" ")[1], httpRequestLine.Split(" ")[2]);
-
-byte[] responseBuffer;
-string response = "";
-
-if (targetUrl == "/")
+while (true)
 {
-    response = $"{httpVersion} 200 OK\r\n\r\n";
-}
-else
-{
-    response = $"{httpVersion} 404 Not Found\r\n\r\n";
+    server.BeginAcceptSocket(AcceptSocketCallback, server);
 }
 
 
-if (targetUrl.StartsWith("/echo/"))
+void AcceptSocketCallback(IAsyncResult asyncResult)
 {
-    string path = targetUrl.Substring(6);
-    response = $"{httpVersion} 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {path.Length}\r\n\r\n{path}";
-}
+    var socket = server.EndAcceptSocket(asyncResult);
+    var buffer = new StringBuilder();
+    var requestBuffer = new byte[1024];
 
-if (targetUrl == "/user-agent")
-{
-    string userAgentContent = "";
-    for (int i = 0; i < requestDetails.Length; i++)
+    var receivedBytes = socket.Receive(requestBuffer);
+    buffer.Append(Encoding.ASCII.GetString(requestBuffer, 0, receivedBytes));
+    var requestReceived = buffer.ToString();
+
+    string response;
+
+    var clientRequest = new Request(requestReceived);
+    var serverResponse = new Response(clientRequest);
+
+    var requestUrl = clientRequest.RequestUrl;
+
+    if (requestUrl == "/")
     {
-        if (requestDetails[i].StartsWith("User-Agent"))
-        {
-            userAgentContent = requestDetails[i].Substring(12);
-        }
+        response = serverResponse.Generate200Response();
     }
-    response = $"{httpVersion} 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {userAgentContent.Length}\r\n\r\n{userAgentContent}";
+    else if (requestUrl.StartsWith("/echo/"))
+    {
+        string target = "/echo/";
+        var responseBodyContent = clientRequest.RequestUrl.Substring(target.Length);
+        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent);
+    }
+    else if (requestUrl == "/user-agent")
+    {
+        string responseBodyContent = "";
+        var target = "User-Agent";
+        for (int i = 0; i < clientRequest.Headers.Count; i++)
+        {
+            if (clientRequest.Headers[i].StartsWith(target))
+            {
+                responseBodyContent = clientRequest.Headers[i].Substring(target.Length);
+                break;
+            }
+        }
+        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent);
+    }
+    else
+    {
+        response = serverResponse.Generate404Response();
+    }
+
+    socket.Send(Encoding.ASCII.GetBytes(response));
+    socket.Close();
 }
 
-responseBuffer = Encoding.UTF8.GetBytes(response);
-socket.Send(responseBuffer);
+public class Response
+{
+    private readonly Request _request;
+    public Response(Request request)
+    {
+        _request = request;
+    }
+
+    public string Generate200Response()
+    {
+        return $"{_request.ProtocolVersion} 200 OK\r\n\r\n";
+    }
+
+    public string Generate404Response()
+    {
+        return $"{_request.ProtocolVersion} 404 Not Found\r\n\r\n";
+    }
+    public string GenerateSuccessResponseWithBody(string responseBodyContent)
+    {
+        return $"{_request.ProtocolVersion} 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {responseBodyContent.Length}\r\n\r\n{responseBodyContent}";
+    }
+}
+
+public class Request
+{
+    public string Method { get; private set; }
+    public string ProtocolVersion { get; private set; }
+    public string RequestUrl { get; private set; }
+    public List<string> Headers { get; private set; }
+
+    public Request(string request)
+    {
+        var requestDetails = request.Split("\r\n");
+        var requestLine = requestDetails[0];
+        (Method, RequestUrl, ProtocolVersion) = (requestLine.Split(" ")[0], requestLine.Split(" ")[1], requestLine.Split(" ")[2]);
+        Headers = ExtractHeaders(requestDetails);
+    }
+
+    private static List<string> ExtractHeaders(string[] requestDetails)
+    {
+        var headers = new List<string>();
+        for (int i = 1; i < requestDetails.Length; i++)
+        {
+            headers.Add(requestDetails[i]);
+        }
+        return headers;
+    }
+}
