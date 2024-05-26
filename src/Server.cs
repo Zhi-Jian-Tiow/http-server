@@ -5,7 +5,14 @@ using System.Text;
 // You can use print statements as follows for debugging, they'll be visible when running tests.
 Console.WriteLine("Logs from your program will appear here!");
 
-// Uncomment this block to pass the first stage
+// var httpServer = new HttpServer();
+// httpServer.Start();
+
+
+// public class HttpServer {
+//     public 
+// }
+
 TcpListener server = new TcpListener(IPAddress.Any, 4221);
 server.Start();
 Console.WriteLine("Accepting client connections");
@@ -39,8 +46,22 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
     else if (requestUrl.StartsWith("/echo/"))
     {
         string target = "/echo/";
+
+        string encodingFormat = "";
+        var includeEncoding = false;
+        for (int i = 0; i < clientRequest.Headers.Count; i++)
+        {
+            if (clientRequest.Headers[i].StartsWith("Accept-Encoding: ".ToLower()))
+            {
+                encodingFormat = clientRequest.Headers[i].Substring(17);
+            }
+        }
+        if (encodingFormat == "gzip")
+        {
+            includeEncoding = true;
+        }
         var responseBodyContent = clientRequest.RequestUrl.Substring(target.Length);
-        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain");
+        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain", includeEncoding);
     }
     else if (requestUrl == "/user-agent")
     {
@@ -54,7 +75,7 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
                 break;
             }
         }
-        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain");
+        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain", false);
     }
     else if (requestUrl.StartsWith("/files/"))
     {
@@ -78,7 +99,7 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
             {
                 Console.WriteLine("Reading requested file content");
                 var fileContent = File.ReadAllText(targetFilePath);
-                response = serverResponse.GenerateSuccessResponseWithBody(fileContent, "application/octet-stream");
+                response = serverResponse.GenerateSuccessResponseWithBody(fileContent, "application/octet-stream", false);
             }
             else
             {
@@ -118,9 +139,12 @@ public class Response
     {
         return "";
     }
-    public string GenerateSuccessResponseWithBody(string responseBodyContent, string contentType)
+    public string GenerateSuccessResponseWithBody(string responseBodyContent, string contentType, bool includeEncoding)
     {
-        return $"{_request.ProtocolVersion} 200 OK\r\nContent-Type: {contentType}\r\nContent-Length: {responseBodyContent.Length}\r\n\r\n{responseBodyContent}";
+        string contentEncodingValue = includeEncoding ? "Content-Encoding: gzip" : "";
+        string contentTypeValue = $"Content-Type: {contentType}";
+        string contentLength = $"Content-Length: {responseBodyContent.Length}";
+        return $"{_request.ProtocolVersion} 200 OK\r\n{contentEncodingValue}\r\n{contentTypeValue}\r\n{contentLength}\r\n\r\n{responseBodyContent}";
     }
 }
 
