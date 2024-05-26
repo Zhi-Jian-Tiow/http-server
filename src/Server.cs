@@ -34,7 +34,7 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
 
     if (requestUrl == "/")
     {
-        response = serverResponse.Generate200Response();
+        response = serverResponse.GenerateSuccessResponse("200", "OK");
     }
     else if (requestUrl.StartsWith("/echo/"))
     {
@@ -58,23 +58,33 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
     }
     else if (requestUrl.StartsWith("/files/"))
     {
+
         var target = "/files/";
         string fileName = requestUrl.Substring(target.Length);
         var cmdArgs = Environment.GetCommandLineArgs();
         string directory = cmdArgs[2];
-        Console.WriteLine(directory);
         var targetFilePath = Path.Join(directory, fileName);
-        Console.WriteLine("Finding requested file: " + targetFilePath);
-        if (File.Exists(targetFilePath))
+
+        if (clientRequest.Method == "POST")
         {
-            Console.WriteLine("Reading requested file content");
-            var fileContent = File.ReadAllText(targetFilePath);
-            response = serverResponse.GenerateSuccessResponseWithBody(fileContent, "application/octet-stream");
+            var fileContent = clientRequest.Body;
+            File.WriteAllText(targetFilePath, fileContent);
+            response = serverResponse.GenerateSuccessResponse("201", "CREATED");
         }
         else
         {
-            Console.WriteLine("File Not Found");
-            response = serverResponse.Generate404Response();
+            Console.WriteLine("Finding requested file: " + targetFilePath);
+            if (File.Exists(targetFilePath))
+            {
+                Console.WriteLine("Reading requested file content");
+                var fileContent = File.ReadAllText(targetFilePath);
+                response = serverResponse.GenerateSuccessResponseWithBody(fileContent, "application/octet-stream");
+            }
+            else
+            {
+                Console.WriteLine("File Not Found");
+                response = serverResponse.Generate404Response();
+            }
         }
     }
     else
@@ -94,14 +104,19 @@ public class Response
         _request = request;
     }
 
-    public string Generate200Response()
+    public string GenerateSuccessResponse(string responseStatus, string responseMessage)
     {
-        return $"{_request.ProtocolVersion} 200 OK\r\n\r\n";
+        return $"{_request.ProtocolVersion} {responseStatus} {responseMessage}\r\n\r\n";
     }
 
     public string Generate404Response()
     {
         return $"{_request.ProtocolVersion} 404 Not Found\r\n\r\n";
+    }
+
+    public string Generate201Response()
+    {
+        return "";
     }
     public string GenerateSuccessResponseWithBody(string responseBodyContent, string contentType)
     {
@@ -115,6 +130,7 @@ public class Request
     public string ProtocolVersion { get; private set; }
     public string RequestUrl { get; private set; }
     public List<string> Headers { get; private set; }
+    public string Body { get; private set; }
 
     public Request(string request)
     {
@@ -122,6 +138,7 @@ public class Request
         var requestLine = requestDetails[0];
         (Method, RequestUrl, ProtocolVersion) = (requestLine.Split(" ")[0], requestLine.Split(" ")[1], requestLine.Split(" ")[2]);
         Headers = ExtractHeaders(requestDetails);
+        Body = ExtractRequestBody(requestDetails);
     }
 
     private static List<string> ExtractHeaders(string[] requestDetails)
@@ -132,5 +149,10 @@ public class Request
             headers.Add(requestDetails[i]);
         }
         return headers;
+    }
+
+    private static string ExtractRequestBody(string[] requestDetails)
+    {
+        return requestDetails.Last();
     }
 }
