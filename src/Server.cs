@@ -45,7 +45,7 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
     else if (requestUrl == "/user-agent")
     {
         string responseBodyContent = "";
-        var target = "User-Agent";
+        var target = "User-Agent: ";
         for (int i = 0; i < clientRequest.Headers.Count; i++)
         {
             if (clientRequest.Headers[i].StartsWith(target))
