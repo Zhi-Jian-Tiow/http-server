@@ -56,7 +56,7 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
                 encodingFormat = clientRequest.Headers[i].Substring(17);
             }
         }
-        if (encodingFormat == "gzip")
+        if (encodingFormat.Contains("gzip"))
         {
             includeEncoding = true;
         }
