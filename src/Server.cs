@@ -141,10 +141,10 @@ public class Response
     }
     public string GenerateSuccessResponseWithBody(string responseBodyContent, string contentType, bool includeEncoding)
     {
-        string contentEncodingValue = includeEncoding ? "Content-Encoding: gzip" : "";
+        string contentEncodingValue = includeEncoding ? "Content-Encoding: gzip\r\n" : "";
         string contentTypeValue = $"Content-Type: {contentType}";
         string contentLength = $"Content-Length: {responseBodyContent.Length}";
-        return $"{_request.ProtocolVersion} 200 OK\r\n{contentEncodingValue}\r\n{contentTypeValue}\r\n{contentLength}\r\n\r\n{responseBodyContent}";
+        return $"{_request.ProtocolVersion} 200 OK\r\n{contentEncodingValue}{contentTypeValue}\r\n{contentLength}\r\n\r\n{responseBodyContent}";
     }
 }
 
