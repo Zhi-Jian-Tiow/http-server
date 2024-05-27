@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -39,6 +40,8 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
 
     var requestUrl = clientRequest.RequestUrl;
 
+    bool responseSent = false;
+
     if (requestUrl == "/")
     {
         response = serverResponse.GenerateSuccessResponse("200", "OK");
@@ -46,8 +49,9 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
     else if (requestUrl.StartsWith("/echo/"))
     {
         string target = "/echo/";
-
         string encodingFormat = "";
+        var responseBodyContent = clientRequest.RequestUrl.Substring(target.Length);
+        byte[] compressedResponse = [];
         var includeEncoding = false;
         for (int i = 0; i < clientRequest.Headers.Count; i++)
         {
@@ -56,12 +60,20 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
                 encodingFormat = clientRequest.Headers[i].Substring(17);
             }
         }
+
         if (encodingFormat.Contains("gzip"))
         {
             includeEncoding = true;
+            compressedResponse = GzipCompressString(responseBodyContent);
+            response = $"{clientRequest.ProtocolVersion} 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: {compressedResponse.Length}\r\n\r\n";
+            socket.Send(Encoding.ASCII.GetBytes(response));
+            socket.Send(compressedResponse);
+            responseSent = true;
         }
-        var responseBodyContent = clientRequest.RequestUrl.Substring(target.Length);
-        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain", includeEncoding);
+        else
+        {
+            response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain", includeEncoding);
+        }
     }
     else if (requestUrl == "/user-agent")
     {
@@ -113,8 +125,26 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
         response = serverResponse.Generate404Response();
     }
 
-    socket.Send(Encoding.ASCII.GetBytes(response));
+    if (!responseSent)
+    {
+        socket.Send(Encoding.ASCII.GetBytes(response));
+
+    }
     socket.Close();
+
+}
+
+byte[] GzipCompressString(string text)
+{
+    var bytes = Encoding.UTF8.GetBytes(text);
+    using (var memoryStreamOutput = new MemoryStream())
+    {
+        using (var gzipStream = new GZipStream(memoryStreamOutput, CompressionMode.Compress))
+        {
+            gzipStream.Write(bytes, 0, bytes.Length);
+        }
+        return memoryStreamOutput.ToArray();
+    }
 }
 
 public class Response
