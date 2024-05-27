@@ -51,7 +51,7 @@ void AcceptSocketCallback(IAsyncResult asyncResult)
         var includeEncoding = false;
         for (int i = 0; i < clientRequest.Headers.Count; i++)
         {
-            if (clientRequest.Headers[i].StartsWith("Accept-Encoding: ".ToLower()))
+            if (clientRequest.Headers[i].ToLower().StartsWith("accept-encoding: "))
             {
                 encodingFormat = clientRequest.Headers[i].Substring(17);
             }
