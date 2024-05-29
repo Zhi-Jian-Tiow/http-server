@@ -180,7 +180,7 @@ public interface IHttpResponseHandler
 public class HttpResponseHandler : IHttpResponseHandler
 {
     private readonly Dictionary<string, string> _statusCodeToMessage = new() {
-        {"200", "Success"},
+        {"200", "OK"},
         {"201", "Created"},
         {"404", "Not Found"},
     };
