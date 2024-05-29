@@ -70,7 +70,7 @@ public class HttpServer
                 compressedResponse = GzipCompressString(responseBody);
                 responseHeader.Add("Content-Encoding", "gzip");
                 responseHeader["Content-Length"] = compressedResponse.Length.ToString();
-                httpResponse = _httpResponseHandler.GenerateCompressedResponse(responseStatus, httpVersion, responseHeader, compressedResponse);
+                httpResponse = _httpResponseHandler.GenerateResponse(responseStatus, httpVersion, responseHeader, null);
             }
             else
             {
@@ -108,7 +108,7 @@ public class HttpServer
         socket.Send(Encoding.ASCII.GetBytes(httpResponse));
         if (requireEncoding)
         {
-            socket.Send(compressedResponse);
+            socket.Send(Encoding.ASCII.GetBytes($"\r\n{compressedResponse}"));
         }
         _stringBuilder.Clear();
         socket.Close();
@@ -178,7 +178,6 @@ public class HttpServer
 public interface IHttpResponseHandler
 {
     public string GenerateResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, string? responseBody);
-    public string GenerateCompressedResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, byte[] compressedResponseBody);
 }
 
 public class HttpResponseHandler : IHttpResponseHandler
@@ -189,7 +188,7 @@ public class HttpResponseHandler : IHttpResponseHandler
         {"404", "Not Found"},
     };
 
-    private string GenerateResponseTemplate(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader)
+    public string GenerateResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, string? responseBody)
     {
         var response = $"{httpVersion} {responseStatus} {_statusCodeToMessage[responseStatus]}";
         if (responseHeader != null)
@@ -204,25 +203,12 @@ public class HttpResponseHandler : IHttpResponseHandler
         {
             response += "\r\n\r\n";
         }
-        return response;
-    }
-
-    public string GenerateResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, string? responseBody)
-    {
-        var response = GenerateResponseTemplate(responseStatus, httpVersion, responseHeader);
 
         if (responseBody != null)
         {
             response += $"\r\n{responseBody}";
         }
 
-        return response;
-    }
-
-    public string GenerateCompressedResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, byte[] compressedResponseBody)
-    {
-        var response = GenerateResponseTemplate(responseStatus, httpVersion, responseHeader);
-        response += $"\r\n{compressedResponseBody}";
         return response;
     }
 }
