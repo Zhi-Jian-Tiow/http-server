@@ -3,210 +3,253 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-// You can use print statements as follows for debugging, they'll be visible when running tests.
-Console.WriteLine("Logs from your program will appear here!");
+var tcpListener = new TcpListener(IPAddress.Any, 4221);
+var stringBuilder = new StringBuilder();
+IHttpRequestHandler httpRequestHandler = new HttpRequestHandler();
+IHttpResponseHandler httpResponseHandler = new HttpResponseHandler();
+var httpServer = new HttpServer(tcpListener, stringBuilder, httpRequestHandler, httpResponseHandler);
+httpServer.Start();
 
-// var httpServer = new HttpServer();
-// httpServer.Start();
-
-
-// public class HttpServer {
-//     public 
-// }
-
-TcpListener server = new TcpListener(IPAddress.Any, 4221);
-server.Start();
-Console.WriteLine("Accepting client connections");
-while (true)
+public class HttpServer
 {
-    server.BeginAcceptSocket(AcceptSocketCallback, server);
-}
-
-
-void AcceptSocketCallback(IAsyncResult asyncResult)
-{
-    var socket = server.EndAcceptSocket(asyncResult);
-    var buffer = new StringBuilder();
-    var requestBuffer = new byte[1024];
-
-    var receivedBytes = socket.Receive(requestBuffer);
-    buffer.Append(Encoding.ASCII.GetString(requestBuffer, 0, receivedBytes));
-    var requestReceived = buffer.ToString();
-
-    string response;
-
-    var clientRequest = new Request(requestReceived);
-    var serverResponse = new Response(clientRequest);
-
-    var requestUrl = clientRequest.RequestUrl;
-
-    bool responseSent = false;
-
-    if (requestUrl == "/")
+    private readonly IHttpRequestHandler _httpRequestHandler;
+    private readonly IHttpResponseHandler _httpResponseHandler;
+    private readonly TcpListener _tcpListener;
+    private readonly StringBuilder _stringBuilder;
+    public HttpServer(TcpListener tcpListener, StringBuilder stringBuilder, IHttpRequestHandler httpRequestHandler, IHttpResponseHandler httpResponseHandler)
     {
-        response = serverResponse.GenerateSuccessResponse("200", "OK");
+        _httpRequestHandler = httpRequestHandler;
+        _httpResponseHandler = httpResponseHandler;
+        _tcpListener = tcpListener;
+        _stringBuilder = stringBuilder;
     }
-    else if (requestUrl.StartsWith("/echo/"))
+    public void Start()
     {
-        string target = "/echo/";
-        string encodingFormat = "";
-        var responseBodyContent = clientRequest.RequestUrl.Substring(target.Length);
+        _tcpListener.Start();
+        while (true)
+        {
+            _tcpListener.BeginAcceptSocket(HandleHttpRequest, _tcpListener);
+        }
+    }
+
+    private void HandleHttpRequest(IAsyncResult asyncResult)
+    {
+        var socket = _tcpListener.EndAcceptSocket(asyncResult);
+
+        // Accept incoming request by allocating the received bytes into buffer
+        var requestBuffer = new byte[1024];
+        var receivedRequestSize = socket.Receive(requestBuffer);
+        _stringBuilder.Append(Encoding.ASCII.GetString(requestBuffer, 0, receivedRequestSize));
+        var requestString = _stringBuilder.ToString();
+
+        var (httpMethod, targetUrl, httpVersion) = _httpRequestHandler.ExtractRequestLine(requestString);
+        var httpsRequestHeaders = _httpRequestHandler.ExtractRequestHeaders(requestString);
+        var httpRequestBody = _httpRequestHandler.ExtractRequestBody(requestString);
+
+        string responseStatus;
+        Dictionary<string, string>? responseHeader;
+        string? responseBody;
+
+        string httpResponse;
+
+        bool requireEncoding = false;
         byte[] compressedResponse = [];
-        var includeEncoding = false;
-        for (int i = 0; i < clientRequest.Headers.Count; i++)
+
+        if (targetUrl == "/")
         {
-            if (clientRequest.Headers[i].ToLower().StartsWith("accept-encoding: "))
+            httpResponse = _httpResponseHandler.GenerateResponse("200", httpVersion, null, null);
+        }
+        else if (targetUrl.StartsWith("/echo/"))
+        {
+            (responseStatus, responseHeader, responseBody) = HandleEchoEndpoint(targetUrl);
+
+            var encodingFormat = httpsRequestHeaders.ContainsKey("accept-encoding") ? httpsRequestHeaders["accept-encoding"] : "";
+            if (encodingFormat.Contains("gzip"))
             {
-                encodingFormat = clientRequest.Headers[i].Substring(17);
+                requireEncoding = true;
+                compressedResponse = GzipCompressString(responseBody);
+                responseHeader.Add("Content-Encoding", "gzip");
             }
-        }
 
-        if (encodingFormat.Contains("gzip"))
-        {
-            includeEncoding = true;
-            compressedResponse = GzipCompressString(responseBodyContent);
-            response = $"{clientRequest.ProtocolVersion} 200 OK\r\nContent-Encoding: gzip\r\nContent-Type: text/plain\r\nContent-Length: {compressedResponse.Length}\r\n\r\n";
-            socket.Send(Encoding.ASCII.GetBytes(response));
-            socket.Send(compressedResponse);
-            responseSent = true;
+
+            httpResponse = _httpResponseHandler.GenerateResponse(responseStatus, httpVersion, responseHeader, responseBody);
         }
-        else
+        else if (targetUrl == "/user-agent")
         {
-            response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain", includeEncoding);
+            (responseStatus, responseHeader, responseBody) = HandleUserAgentEndpoint(httpsRequestHeaders);
+            httpResponse = _httpResponseHandler.GenerateResponse(responseStatus, httpVersion, responseHeader, responseBody);
         }
-    }
-    else if (requestUrl == "/user-agent")
-    {
-        string responseBodyContent = "";
-        var target = "User-Agent: ";
-        for (int i = 0; i < clientRequest.Headers.Count; i++)
+        else if (targetUrl.StartsWith("/files/"))
         {
-            if (clientRequest.Headers[i].StartsWith(target))
+            var fileName = targetUrl.Substring("/files/".Length);
+            var cmdArgs = Environment.GetCommandLineArgs();
+            var directory = cmdArgs[2];
+            var filePath = Path.Join(directory, fileName);
+
+            if (httpMethod == "POST")
             {
-                responseBodyContent = clientRequest.Headers[i].Substring(target.Length);
-                break;
-            }
-        }
-        response = serverResponse.GenerateSuccessResponseWithBody(responseBodyContent, "text/plain", false);
-    }
-    else if (requestUrl.StartsWith("/files/"))
-    {
-
-        var target = "/files/";
-        string fileName = requestUrl.Substring(target.Length);
-        var cmdArgs = Environment.GetCommandLineArgs();
-        string directory = cmdArgs[2];
-        var targetFilePath = Path.Join(directory, fileName);
-
-        if (clientRequest.Method == "POST")
-        {
-            var fileContent = clientRequest.Body;
-            File.WriteAllText(targetFilePath, fileContent);
-            response = serverResponse.GenerateSuccessResponse("201", "Created");
-        }
-        else
-        {
-            Console.WriteLine("Finding requested file: " + targetFilePath);
-            if (File.Exists(targetFilePath))
-            {
-                Console.WriteLine("Reading requested file content");
-                var fileContent = File.ReadAllText(targetFilePath);
-                response = serverResponse.GenerateSuccessResponseWithBody(fileContent, "application/octet-stream", false);
+                responseStatus = HandlePostFile(httpRequestBody, filePath);
+                httpResponse = _httpResponseHandler.GenerateResponse(responseStatus, httpVersion, null, null);
             }
             else
             {
-                Console.WriteLine("File Not Found");
-                response = serverResponse.Generate404Response();
+                (responseStatus, responseHeader, responseBody) = HandleGetFileContent(filePath);
+                httpResponse = _httpResponseHandler.GenerateResponse(responseStatus, httpVersion, responseHeader, responseBody);
             }
         }
-    }
-    else
-    {
-        response = serverResponse.Generate404Response();
-    }
-
-    if (!responseSent)
-    {
-        socket.Send(Encoding.ASCII.GetBytes(response));
-
-    }
-    socket.Close();
-
-}
-
-byte[] GzipCompressString(string text)
-{
-    var bytes = Encoding.UTF8.GetBytes(text);
-    using (var memoryStreamOutput = new MemoryStream())
-    {
-        using (var gzipStream = new GZipStream(memoryStreamOutput, CompressionMode.Compress))
+        else
         {
-            gzipStream.Write(bytes, 0, bytes.Length);
+            httpResponse = _httpResponseHandler.GenerateResponse("404", httpVersion, null, null);
         }
-        return memoryStreamOutput.ToArray();
+
+        socket.Send(Encoding.ASCII.GetBytes(httpResponse));
+        if (requireEncoding)
+        {
+            socket.Send(compressedResponse);
+        }
+        _stringBuilder.Clear();
+        socket.Close();
+    }
+
+    private Tuple<string, Dictionary<string, string>, string> HandleEchoEndpoint(string targetUrl)
+    {
+        var responseBodyContent = targetUrl.Substring(6);
+        var responseHeader = new Dictionary<string, string>() {
+                {"Content-Type", "text/plain"},
+                {"Content-Length", $"{responseBodyContent.Length}"}
+            };
+        return new Tuple<string, Dictionary<string, string>, string>("200", responseHeader, responseBodyContent);
+    }
+
+    private Tuple<string, Dictionary<string, string>, string> HandleUserAgentEndpoint(Dictionary<string, string> requestHeaders)
+    {
+        var targetHeader = "User-Agent";
+        var responseBodyContent = requestHeaders[targetHeader.ToLower()];
+        var responseHeader = new Dictionary<string, string>() {
+                {"Content-Type", "text/plain"},
+                {"Content-Length", $"{responseBodyContent.Length}"}
+            };
+        return new Tuple<string, Dictionary<string, string>, string>("200", responseHeader, responseBodyContent); ;
+    }
+
+    private Tuple<string, Dictionary<string, string>, string> HandleGetFileContent(string filePath)
+    {
+        Console.WriteLine("Finding requested file at " + filePath);
+        if (File.Exists(filePath))
+        {
+            Console.WriteLine("Reading requested file content");
+            var fileContent = File.ReadAllText(filePath);
+            var responseHeader = new Dictionary<string, string>() {
+                {"Content-Type", "application/octet-stream"},
+                {"Content-Length", $"{fileContent.Length}"}
+            };
+            return new Tuple<string, Dictionary<string, string>, string>("200", responseHeader, fileContent); ;
+        }
+        else
+        {
+            Console.WriteLine("File Not Found");
+            return new Tuple<string, Dictionary<string, string>, string>("404", null, null); ;
+        }
+    }
+
+    private string HandlePostFile(string requestBody, string filePath)
+    {
+        File.WriteAllText(filePath, requestBody);
+        return "201";
+    }
+
+    private byte[] GzipCompressString(string text)
+    {
+        var bytes = Encoding.UTF8.GetBytes(text);
+        using (var memoryStreamOutput = new MemoryStream())
+        {
+            using (var gzipStream = new GZipStream(memoryStreamOutput, CompressionMode.Compress))
+            {
+                gzipStream.Write(bytes, 0, bytes.Length);
+            }
+            return memoryStreamOutput.ToArray();
+        }
     }
 }
 
-public class Response
+public interface IHttpResponseHandler
 {
-    private readonly Request _request;
-    public Response(Request request)
-    {
-        _request = request;
-    }
-
-    public string GenerateSuccessResponse(string responseStatus, string responseMessage)
-    {
-        return $"{_request.ProtocolVersion} {responseStatus} {responseMessage}\r\n\r\n";
-    }
-
-    public string Generate404Response()
-    {
-        return $"{_request.ProtocolVersion} 404 Not Found\r\n\r\n";
-    }
-
-    public string Generate201Response()
-    {
-        return "";
-    }
-    public string GenerateSuccessResponseWithBody(string responseBodyContent, string contentType, bool includeEncoding)
-    {
-        string contentEncodingValue = includeEncoding ? "Content-Encoding: gzip\r\n" : "";
-        string contentTypeValue = $"Content-Type: {contentType}";
-        string contentLength = $"Content-Length: {responseBodyContent.Length}";
-        return $"{_request.ProtocolVersion} 200 OK\r\n{contentEncodingValue}{contentTypeValue}\r\n{contentLength}\r\n\r\n{responseBodyContent}";
-    }
+    public string GenerateResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, string? responseBody);
 }
 
-public class Request
+public class HttpResponseHandler : IHttpResponseHandler
 {
-    public string Method { get; private set; }
-    public string ProtocolVersion { get; private set; }
-    public string RequestUrl { get; private set; }
-    public List<string> Headers { get; private set; }
-    public string Body { get; private set; }
+    private readonly Dictionary<string, string> _statusCodeToMessage = new() {
+        {"200", "Success"},
+        {"201", "Created"},
+        {"404", "Not Found"},
+    };
 
-    public Request(string request)
+    public string GenerateResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, string? responseBody)
+    {
+        var response = $"{httpVersion} {responseStatus} {_statusCodeToMessage[responseStatus]}";
+        if (responseHeader != null)
+        {
+            response += "\r\n";
+            foreach (var header in responseHeader.Keys)
+            {
+                response += $"{header}: {responseHeader[header]}\r\n";
+            }
+        }
+        else
+        {
+            response += "\r\n\r\n";
+        }
+
+        if (responseBody != null)
+        {
+            response += $"\r\n{responseBody}";
+        }
+
+        return response;
+    }
+
+}
+
+public interface IHttpRequestHandler
+{
+    public Tuple<string, string, string> ExtractRequestLine(string request);
+    public Dictionary<string, string> ExtractRequestHeaders(string request);
+    public string ExtractRequestBody(string request);
+}
+
+public class HttpRequestHandler : IHttpRequestHandler
+{
+    private readonly string headerBodySeparation = "\r\n\r\n";
+
+    public Tuple<string, string, string> ExtractRequestLine(string request)
     {
         var requestDetails = request.Split("\r\n");
         var requestLine = requestDetails[0];
-        (Method, RequestUrl, ProtocolVersion) = (requestLine.Split(" ")[0], requestLine.Split(" ")[1], requestLine.Split(" ")[2]);
-        Headers = ExtractHeaders(requestDetails);
-        Body = ExtractRequestBody(requestDetails);
+        return new Tuple<string, string, string>(requestLine.Split(" ")[0], requestLine.Split(" ")[1], requestLine.Split(" ")[2]);
     }
-
-    private static List<string> ExtractHeaders(string[] requestDetails)
+    public Dictionary<string, string> ExtractRequestHeaders(string request)
     {
-        var headers = new List<string>();
+        var separationIndex = request.IndexOf(headerBodySeparation);
+        var requestDetails = request.Substring(0, separationIndex).Split("\r\n");
+
+        var headers = new Dictionary<string, string>();
         for (int i = 1; i < requestDetails.Length; i++)
         {
-            headers.Add(requestDetails[i]);
+            var (requestHeader, headerValue) = (requestDetails[i].Split(": ")[0].ToLower(), requestDetails[i].Split(": ")[1]);
+            headers.Add(requestHeader, headerValue);
         }
+
         return headers;
     }
-
-    private static string ExtractRequestBody(string[] requestDetails)
+    public string ExtractRequestBody(string request)
     {
-        return requestDetails.Last();
+        var separationIndex = request.IndexOf(headerBodySeparation);
+        if (separationIndex != -1)
+        {
+            var requestBody = request.Substring(separationIndex + headerBodySeparation.Length);
+            return requestBody;
+        }
+        return "";
     }
 }
