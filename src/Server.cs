@@ -108,7 +108,7 @@ public class HttpServer
         socket.Send(Encoding.ASCII.GetBytes(httpResponse));
         if (requireEncoding)
         {
-            socket.Send(Encoding.ASCII.GetBytes($"\r\n{compressedResponse}"));
+            socket.Send(compressedResponse);
         }
         _stringBuilder.Clear();
         socket.Close();
@@ -209,7 +209,7 @@ public class HttpResponseHandler : IHttpResponseHandler
             response += $"\r\n{responseBody}";
         }
 
-        return response;
+        return response + "\r\n";
     }
 }
 
