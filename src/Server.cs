@@ -69,10 +69,13 @@ public class HttpServer
                 requireEncoding = true;
                 compressedResponse = GzipCompressString(responseBody);
                 responseHeader.Add("Content-Encoding", "gzip");
+                responseHeader["Content-Length"] = compressedResponse.Length.ToString();
+                httpResponse = _httpResponseHandler.GenerateCompressedResponse(responseStatus, httpVersion, responseHeader, compressedResponse);
             }
-
-
-            httpResponse = _httpResponseHandler.GenerateResponse(responseStatus, httpVersion, responseHeader, responseBody);
+            else
+            {
+                httpResponse = _httpResponseHandler.GenerateResponse(responseStatus, httpVersion, responseHeader, responseBody);
+            }
         }
         else if (targetUrl == "/user-agent")
         {
@@ -111,7 +114,7 @@ public class HttpServer
         socket.Close();
     }
 
-    private Tuple<string, Dictionary<string, string>, string> HandleEchoEndpoint(string targetUrl)
+    private static Tuple<string, Dictionary<string, string>, string> HandleEchoEndpoint(string targetUrl)
     {
         var responseBodyContent = targetUrl.Substring(6);
         var responseHeader = new Dictionary<string, string>() {
@@ -121,7 +124,7 @@ public class HttpServer
         return new Tuple<string, Dictionary<string, string>, string>("200", responseHeader, responseBodyContent);
     }
 
-    private Tuple<string, Dictionary<string, string>, string> HandleUserAgentEndpoint(Dictionary<string, string> requestHeaders)
+    private static Tuple<string, Dictionary<string, string>, string> HandleUserAgentEndpoint(Dictionary<string, string> requestHeaders)
     {
         var targetHeader = "User-Agent";
         var responseBodyContent = requestHeaders[targetHeader.ToLower()];
@@ -132,7 +135,7 @@ public class HttpServer
         return new Tuple<string, Dictionary<string, string>, string>("200", responseHeader, responseBodyContent); ;
     }
 
-    private Tuple<string, Dictionary<string, string>, string> HandleGetFileContent(string filePath)
+    private static Tuple<string, Dictionary<string, string>, string> HandleGetFileContent(string filePath)
     {
         Console.WriteLine("Finding requested file at " + filePath);
         if (File.Exists(filePath))
@@ -152,13 +155,13 @@ public class HttpServer
         }
     }
 
-    private string HandlePostFile(string requestBody, string filePath)
+    private static string HandlePostFile(string requestBody, string filePath)
     {
         File.WriteAllText(filePath, requestBody);
         return "201";
     }
 
-    private byte[] GzipCompressString(string text)
+    private static byte[] GzipCompressString(string text)
     {
         var bytes = Encoding.UTF8.GetBytes(text);
         using (var memoryStreamOutput = new MemoryStream())
@@ -175,6 +178,7 @@ public class HttpServer
 public interface IHttpResponseHandler
 {
     public string GenerateResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, string? responseBody);
+    public string GenerateCompressedResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, byte[] compressedResponseBody);
 }
 
 public class HttpResponseHandler : IHttpResponseHandler
@@ -185,7 +189,7 @@ public class HttpResponseHandler : IHttpResponseHandler
         {"404", "Not Found"},
     };
 
-    public string GenerateResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, string? responseBody)
+    private string GenerateResponseTemplate(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader)
     {
         var response = $"{httpVersion} {responseStatus} {_statusCodeToMessage[responseStatus]}";
         if (responseHeader != null)
@@ -200,6 +204,12 @@ public class HttpResponseHandler : IHttpResponseHandler
         {
             response += "\r\n\r\n";
         }
+        return response;
+    }
+
+    public string GenerateResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, string? responseBody)
+    {
+        var response = GenerateResponseTemplate(responseStatus, httpVersion, responseHeader);
 
         if (responseBody != null)
         {
@@ -209,6 +219,12 @@ public class HttpResponseHandler : IHttpResponseHandler
         return response;
     }
 
+    public string GenerateCompressedResponse(string responseStatus, string httpVersion, Dictionary<string, string>? responseHeader, byte[] compressedResponseBody)
+    {
+        var response = GenerateResponseTemplate(responseStatus, httpVersion, responseHeader);
+        response += $"\r\n{compressedResponseBody}";
+        return response;
+    }
 }
 
 public interface IHttpRequestHandler
@@ -228,6 +244,7 @@ public class HttpRequestHandler : IHttpRequestHandler
         var requestLine = requestDetails[0];
         return new Tuple<string, string, string>(requestLine.Split(" ")[0], requestLine.Split(" ")[1], requestLine.Split(" ")[2]);
     }
+
     public Dictionary<string, string> ExtractRequestHeaders(string request)
     {
         var separationIndex = request.IndexOf(headerBodySeparation);
@@ -242,6 +259,7 @@ public class HttpRequestHandler : IHttpRequestHandler
 
         return headers;
     }
+
     public string ExtractRequestBody(string request)
     {
         var separationIndex = request.IndexOf(headerBodySeparation);
